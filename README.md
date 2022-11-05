@@ -1,5 +1,7 @@
 # Carrotson
 
+Markov model implementation on sequence of bytes.
+
 ## Quick Start
 
 ```console
