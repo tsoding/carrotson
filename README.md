@@ -6,5 +6,5 @@ Markov model implementation on sequence of bytes.
 
 ```console
 $ rustc -C opt-level=3 main.rs
-$ ./main
+$ ./main gen ./LICENSE
 ```

@@ -1,7 +1,8 @@
-use std::io::{self, BufRead};
 use std::collections::HashMap;
 use std::time::SystemTime;
 use std::fs;
+use std::env;
+use std::process::exit;
 
 // Stolen from https://en.wikipedia.org/wiki/Linear_congruential_generator
 // Using the values of MMIX by Donald Knuth
@@ -63,23 +64,6 @@ impl Freq {
         }
         None
     }
-
-    fn write_to(&self, w: &mut impl io::Write) -> io::Result<()> {
-        for x in self.tokens.iter() {
-            w.write(&x.to_le_bytes())?;
-        }
-        Ok(())
-    }
-
-    fn read_from(r: &mut impl io::Read) -> io::Result<Freq> {
-        let mut result = Freq::new();
-        for token in result.tokens.iter_mut() {
-            let mut freq_buf = [0; 2];
-            r.read(&mut freq_buf)?;
-            *token = u16::from_le_bytes(freq_buf);
-        }
-        Ok(result)
-    }
 }
 
 #[derive(Debug)]
@@ -107,25 +91,6 @@ impl Model {
                 self.model.insert(context, freq);
             }
         }
-    }
-
-    fn read_from(r: &mut impl io::Read) -> io::Result<Self> {
-        let mut result = Self::new();
-        let mut context_buf = [0; 8];
-        while r.read(&mut context_buf)? == 8  {
-            let context = u64::from_le_bytes(context_buf);
-            let freq = Freq::read_from(r)?;
-            result.model.insert(context, freq);
-        }
-        Ok(result)
-    }
-
-    fn write_to(&self, w: &mut impl io::Write) -> io::Result<()> {
-        for (context, freq) in self.model.iter() {
-            w.write(&context.to_le_bytes())?;
-            freq.write_to(w)?;
-        }
-        Ok(())
     }
 }
 
@@ -162,48 +127,75 @@ fn context_push(context: &mut u64, x: u8) {
     *context = ((*context)<<8)|(x as u64);
 }
 
+fn usage(program: &str) {
+    eprintln!("Usage: {program} <subcommand> [arguments]");
+    eprintln!("Subcommands:");
+    eprintln!("    gen <input.txt> [limit]    generate random text based on a model trained from <input.txt>");
+    eprintln!("    stats <input.txt>          print some stats of the model that is trained from <input.txt>");
+}
+
 fn main() {
-    let mut lcg = LCG::new(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs());
+    let mut lcg = LCG::new(
+        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(
+            |d| d.as_secs()
+        ).unwrap_or_else(
+            |e| e.duration().as_secs()
+        )
+    );
 
-    // println!("Reading pre-trained model");
-    // let model = Model::read_from(&mut io::BufReader::new(fs::File::open("model.bin").unwrap())).unwrap();
+    let mut args = env::args();
+    let program = args.next().expect("Program name should be always present");
 
-    println!("Training the model...");
-    let mut model = Model::new();
-    {
-        let file_path = "twitch.log";
-        println!("  {file_path}");
-        for line in io::BufReader::new(fs::File::open(file_path).unwrap()).lines() {
-            for (context, next) in Slicer::new(line.unwrap().into_bytes()) {
+    let subcommand = args.next().unwrap_or_else(|| {
+        usage(&program);
+        eprintln!("ERROR: no subcommand is provided");
+        exit(1);
+    });
+
+    match subcommand.as_str() {
+        "gen" => {
+            let file_path = args.next().unwrap_or_else(|| {
+                usage(&program);
+                eprintln!("ERROR: no input file is provided");
+                exit(1);
+            });
+
+            let limit = args.next().map(|text| {
+                text.parse::<usize>().unwrap_or_else(|_| {
+                    eprintln!("ERROR: limit must be an integer. Sadly `{text}` does not look like an integer.");
+                    exit(1)
+                })
+            }).unwrap_or(1024);
+
+            println!("Training the model...");
+            let mut model = Model::new();
+            let bytes = fs::read(&file_path).unwrap_or_else(|err| {
+                eprintln!("ERROR: could not read file {file_path}: {err}");
+                exit(1)
+            });
+            for (context, next) in Slicer::new(bytes) {
                 model.push(context, next)
             }
-        }
-    }
-    {
-        let file_path = "discord.log";
-        println!("  {file_path}");
-        for line in io::BufReader::new(fs::File::open(file_path).unwrap()).lines() {
-            for (context, next) in Slicer::new(line.unwrap().into_bytes()) {
-                model.push(context, next)
-            }
-        }
-    }
 
-    // println!("Saving the model");
-    // model.write_to(&mut io::BufWriter::new(fs::File::create("model.bin").unwrap())).unwrap()
 
-    println!("Generating text...");
-    for _ in 0..100 {
-        let mut context = 0;
-        let mut buffer = Vec::new();
-        const LIMIT: usize = 1024;
-        while let Some(x) = model.random(context, &mut lcg) {
-            if buffer.len() >= LIMIT {
-                break
+            println!("Generating text...");
+            println!("------------------------------");
+            let mut context = 0;
+            let mut buffer = Vec::new();
+            while let Some(x) = model.random(context, &mut lcg) {
+                if buffer.len() >= limit {
+                    break
+                }
+                buffer.push(x);
+                context_push(&mut context, x);
             }
-            buffer.push(x);
-            context_push(&mut context, x);
+            println!("{}", std::str::from_utf8(&buffer).unwrap());
+        },
+        "stats" => todo!(),
+        _ => {
+            usage(&program);
+            eprintln!("ERROR: unknown subcommand `{subcommand}`");
+            exit(1);
         }
-        println!("{}", std::str::from_utf8(&buffer).unwrap());
     }
 }
