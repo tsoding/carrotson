@@ -4,8 +4,6 @@ use std::fs;
 use std::env;
 use std::process::exit;
 
-// Stolen from https://en.wikipedia.org/wiki/Linear_congruential_generator
-// Using the values of MMIX by Donald Knuth
 struct LCG {
     state: u64
 }
@@ -16,6 +14,8 @@ impl LCG {
     }
 
     fn random_u32(&mut self) -> u32 {
+        // Stolen from https://en.wikipedia.org/wiki/Linear_congruential_generator
+        // Using the values of MMIX by Donald Knuth
         const RAND_A: u64 = 6364136223846793005;
         const RAND_C: u64 = 1442695040888963407;
         (self.state, _) = self.state.overflowing_mul(RAND_A);
@@ -128,10 +128,10 @@ fn context_push(context: &mut u64, x: u8) {
 }
 
 fn usage(program: &str) {
-    eprintln!("Usage: {program} <subcommand> [arguments]");
+    eprintln!("Usage: {program} <SUBCOMMANDS> [OPTIONS]");
     eprintln!("Subcommands:");
-    eprintln!("    gen <input.txt> [limit]    generate random text based on a model trained from <input.txt>");
-    eprintln!("    stats <input.txt>          print some stats of the model that is trained from <input.txt>");
+    eprintln!("    gen <FILES...> [-l <LIMIT>]    generate random text based on a model trained from <FILES...>");
+    eprintln!("    stats <FILES...>               print some stats of the model that is trained from <FILES...>");
 }
 
 fn main() {
@@ -177,7 +177,6 @@ fn main() {
                 model.push(context, next)
             }
 
-
             println!("Generating text...");
             println!("------------------------------");
             let mut context = 0;
@@ -191,7 +190,25 @@ fn main() {
             }
             println!("{}", std::str::from_utf8(&buffer).unwrap());
         },
-        "stats" => todo!(),
+        "stats" => {
+            let file_path = args.next().unwrap_or_else(|| {
+                usage(&program);
+                eprintln!("ERROR: no input file is provided");
+                exit(1);
+            });
+
+            println!("Training the model...");
+            let mut model = Model::new();
+            let bytes = fs::read(&file_path).unwrap_or_else(|err| {
+                eprintln!("ERROR: could not read file {file_path}: {err}");
+                exit(1)
+            });
+            for (context, next) in Slicer::new(bytes) {
+                model.push(context, next)
+            }
+
+            println!("Records count: {}", model.model.len());
+        }
         _ => {
             usage(&program);
             eprintln!("ERROR: unknown subcommand `{subcommand}`");
