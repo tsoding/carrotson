@@ -150,9 +150,6 @@ impl Model {
         let mut result = Self::new();
         let count = read_u64(r)?;
         result.model.reserve(count as usize);
-        println!("------------------------------");
-        println!("Size of the model {count}");
-        println!("------------------------------");
         for _ in 0..count {
             let context = read_u64(r)?;
             let freq = Freq::read_from(r)?;
@@ -245,8 +242,6 @@ fn main() {
                 eprintln!("ERROR: could not read from file {file_path}: {err}");
                 exit(1);
             });
-
-            println!("Records: {}", model.model.len());
 
             println!("Generating text...");
             println!("------------------------------");
