@@ -6,5 +6,6 @@ Markov model implementation on sequence of bytes.
 
 ```console
 $ rustc -C opt-level=3 carrotson.rs
-$ ./carrotson gen ./LICENSE
+$ ./carrotson train ./LICENSE model
+$ ./carrotson gen model
 ```
